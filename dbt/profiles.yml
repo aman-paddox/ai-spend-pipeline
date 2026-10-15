@@ -1,0 +1,8 @@
+ai_spend:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Relative to where dbt runs: the repo root.
+      path: "{{ env_var('WAREHOUSE', 'warehouse.duckdb') }}"
+      threads: 4

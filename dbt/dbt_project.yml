@@ -1,0 +1,12 @@
+name: ai_spend
+version: "1.0.0"
+profile: ai_spend
+
+models:
+  ai_spend:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts

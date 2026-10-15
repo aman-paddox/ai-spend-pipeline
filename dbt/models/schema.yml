@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: stg_azure_openai_usage
+    columns:
+      - name: usage_date
+        tests: [not_null]
+      - name: api_key_id
+        tests: [not_null]
+      - name: cost_usd
+        tests: [not_null]
+  - name: stg_api_keys
+    columns:
+      - name: api_key_id
+        tests: [unique, not_null]
+  - name: ai_spend_daily
+    columns:
+      - name: department
+        tests: [not_null]
+      - name: tool
+        tests:
+          - accepted_values:
+              values: ["Azure OpenAI"]
+  - name: ai_spend_monthly
+    columns:
+      - name: department
+        tests: [not_null]
+      - name: tool
+        tests:
+          - accepted_values:
+              values: ["Azure OpenAI", "Microsoft 365 Copilot"]
