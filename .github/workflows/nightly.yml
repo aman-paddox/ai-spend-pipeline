@@ -1,0 +1,29 @@
+name: nightly
+# The nightly load. Run it by hand with a date to load (or reload) up to that day.
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Load up to and including this day (YYYY-MM-DD). Empty means every file."
+        required: false
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    env:
+      DATE: ${{ inputs.date }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python ingest/load.py ${DATE:+--through "$DATE"}
+      - run: dbt build --project-dir dbt --profiles-dir dbt
+      - name: Tell the team it failed
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        run: |
+          curl -sS -X POST -H 'content-type: application/json' "$SLACK_WEBHOOK_URL" \
+            --data "{\"text\":\"Nightly load failed${DATE:+ for $DATE}: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"

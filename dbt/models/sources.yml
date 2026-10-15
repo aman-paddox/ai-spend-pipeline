@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: raw
+    tables:
+      - name: azure_openai_usage
+      - name: api_keys
+      - name: m365_copilot_seats
+      - name: github_copilot_seats
+  - name: finance
+    tables:
+      - name: vendor_invoices
