@@ -1,4 +1,4 @@
-usage_date,api_key_id,model,tokens,cost
+usage_date,api_key_id,model,tokens,cost_usd
 2026-09-29,key-man-1,gpt-4o,249296,1.25
 2026-09-29,key-man-1,gpt-4o-mini,307095,0.18
 2026-09-29,key-man-1,o3,478444,4.78
