@@ -42,9 +42,26 @@ def test_through_stops_at_the_given_day(dirs):
     assert load(db, landing, reference, through="2026-07-01") == 1
 
 
-def test_a_file_missing_a_column_stops_the_load_and_says_which(dirs):
+def test_a_file_with_the_renamed_cost_column_still_loads(dirs):
     landing, reference, db = dirs
     renamed = ["usage_date", "api_key_id", "model", "tokens", "cost"]
     write(landing / "2026-07-01.csv", renamed, [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]])
-    with pytest.raises(SystemExit, match="missing column.*cost_usd"):
+    assert load(db, landing, reference) == 1
+    cost = duckdb.connect(db).execute("select cost_usd from raw.azure_openai_usage").fetchone()[0]
+    assert float(cost) == 0.50
+
+
+def test_a_file_missing_both_cost_columns_stops_the_load_and_says_which(dirs):
+    landing, reference, db = dirs
+    no_cost = ["usage_date", "api_key_id", "model", "tokens"]
+    write(landing / "2026-07-01.csv", no_cost, [["2026-07-01", "key-a", "gpt-4o", 1000]])
+    with pytest.raises(SystemExit, match="missing column.*cost_usd/cost"):
         load(db, landing, reference)
+
+
+def test_mixed_old_and_new_cost_column_files_both_load(dirs):
+    landing, reference, db = dirs
+    renamed = ["usage_date", "api_key_id", "model", "tokens", "cost"]
+    write(landing / "2026-07-01.csv", HEADER, [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]])
+    write(landing / "2026-07-02.csv", renamed, [["2026-07-02", "key-a", "gpt-4o", 2000, "1.00"]])
+    assert load(db, landing, reference) == 2
