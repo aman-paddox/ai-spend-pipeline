@@ -12,7 +12,8 @@ from pathlib import Path
 import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
-REQUIRED = ["usage_date", "api_key_id", "model", "tokens", "cost_usd"]
+REQUIRED = ["usage_date", "api_key_id", "model", "tokens"]
+COST_COLUMNS = ["cost_usd", "cost"]  # Azure renamed cost_usd -> cost from 2026-09-29 onward
 
 
 def check_columns(files: list[Path]) -> None:
@@ -20,6 +21,8 @@ def check_columns(files: list[Path]) -> None:
         with path.open() as f:
             header = next(csv.reader(f))
         missing = [c for c in REQUIRED if c not in header]
+        if not any(c in header for c in COST_COLUMNS):
+            missing.append("/".join(COST_COLUMNS))
         if missing:
             raise SystemExit(f"{path.name}: missing column(s) {', '.join(missing)}; found {', '.join(header)}")
 
@@ -32,6 +35,15 @@ def load(db: str, landing: Path, reference: Path, through: str | None = None) ->
         raise SystemExit("no landing files to load")
     check_columns(files)
 
+    present_cost_columns = []
+    for col in COST_COLUMNS:
+        for path in files:
+            with path.open() as f:
+                if col in next(csv.reader(f)):
+                    present_cost_columns.append(col)
+                    break
+    cost_expr = "coalesce(" + ", ".join(f"try_cast(src.{c} as decimal(12, 2))" for c in present_cost_columns) + ")"
+
     con = duckdb.connect(db)
     con.execute("create schema if not exists raw")
     con.execute("create schema if not exists finance")
@@ -39,9 +51,9 @@ def load(db: str, landing: Path, reference: Path, through: str | None = None) ->
     con.execute(f"""
         create or replace table raw.azure_openai_usage as
         select usage_date::date as usage_date, api_key_id, model, tokens::bigint as tokens,
-               cost_usd::decimal(12, 2) as cost_usd,
+               {cost_expr} as cost_usd,
                regexp_extract(filename, '([^/]+)\\.csv$', 1) as _load_id
-        from read_csv([{file_list}], filename = true, header = true, all_varchar = true)
+        from read_csv([{file_list}], filename = true, header = true, all_varchar = true, union_by_name = true) as src
     """)
     for table, file in [
         ("raw.api_keys", "api_keys.csv"),
