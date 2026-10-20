@@ -24,12 +24,33 @@ def check_columns(files: list[Path]) -> None:
             raise SystemExit(f"{path.name}: missing column(s) {', '.join(missing)}; found {', '.join(header)}")
 
 
+def dedupe_by_day(files: list[Path]) -> list[Path]:
+    """Keep one file per usage day.
+
+    The feed sometimes lands a second file for a day it already sent, named
+    "<date>-<suffix>.csv" (e.g. a retry after a dropped connection). That file
+    replaces the plain "<date>.csv" for the same day rather than adding to it,
+    otherwise that day's usage gets double-counted. If more than one override
+    shows up for the same day, the lexicographically last one wins.
+    """
+    by_day: dict[str, list[Path]] = {}
+    for f in files:
+        by_day.setdefault(f.name[:10], []).append(f)
+    chosen = []
+    for day, day_files in sorted(by_day.items()):
+        base = [f for f in day_files if f.name == f"{day}.csv"]
+        overrides = sorted(f for f in day_files if f.name != f"{day}.csv")
+        chosen.append(overrides[-1] if overrides else base[0])
+    return chosen
+
+
 def load(db: str, landing: Path, reference: Path, through: str | None = None) -> int:
     files = sorted(landing.glob("*.csv"))
     if through:
         files = [f for f in files if f.name[:10] <= through]
     if not files:
         raise SystemExit("no landing files to load")
+    files = dedupe_by_day(files)
     check_columns(files)
 
     con = duckdb.connect(db)
