@@ -24,12 +24,30 @@ def check_columns(files: list[Path]) -> None:
             raise SystemExit(f"{path.name}: missing column(s) {', '.join(missing)}; found {', '.join(header)}")
 
 
+def _latest_per_day(files: list[Path]) -> list[Path]:
+    """Keep one file per usage date.
+
+    A day can land more than once, e.g. "2026-08-17.csv" and a resend
+    "2026-08-17-retry.csv" after the feed was fixed. The resend replaces the
+    original rather than adding to them, so keep only the most recent file
+    for each date (the one with the longest/latest suffix) instead of
+    summing both into raw.azure_openai_usage.
+    """
+    by_date: dict[str, Path] = {}
+    for f in sorted(files):
+        date = f.stem[:10]
+        if date not in by_date or f.stem[10:] > by_date[date].stem[10:]:
+            by_date[date] = f
+    return sorted(by_date.values())
+
+
 def load(db: str, landing: Path, reference: Path, through: str | None = None) -> int:
     files = sorted(landing.glob("*.csv"))
     if through:
         files = [f for f in files if f.name[:10] <= through]
     if not files:
         raise SystemExit("no landing files to load")
+    files = _latest_per_day(files)
     check_columns(files)
 
     con = duckdb.connect(db)
