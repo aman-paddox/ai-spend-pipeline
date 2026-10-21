@@ -36,12 +36,30 @@ def load(db: str, landing: Path, reference: Path, through: str | None = None) ->
     con.execute("create schema if not exists raw")
     con.execute("create schema if not exists finance")
     file_list = ", ".join(f"'{f}'" for f in files)
+    # A day's usage can be re-landed (e.g. a "-retry" file after a failed or partial
+    # fetch). Re-landed files carry the full day's data again, not an addition to it,
+    # so keep one row per (usage_date, api_key_id, model): the base "<date>.csv" file
+    # is the day's first landing, and any other file covering the same date is a
+    # correction of it and wins over the base file.
     con.execute(f"""
         create or replace table raw.azure_openai_usage as
-        select usage_date::date as usage_date, api_key_id, model, tokens::bigint as tokens,
-               cost_usd::decimal(12, 2) as cost_usd,
-               regexp_extract(filename, '([^/]+)\\.csv$', 1) as _load_id
-        from read_csv([{file_list}], filename = true, header = true, all_varchar = true)
+        with parsed as (
+            select usage_date::date as usage_date, api_key_id, model, tokens::bigint as tokens,
+                   cost_usd::decimal(12, 2) as cost_usd,
+                   regexp_extract(filename, '([^/]+)\\.csv$', 1) as _load_id
+            from read_csv([{file_list}], filename = true, header = true, all_varchar = true)
+        ),
+        ranked as (
+            select *,
+                   row_number() over (
+                       partition by usage_date, api_key_id, model
+                       order by (_load_id = strftime(usage_date, '%Y-%m-%d')) asc, _load_id desc
+                   ) as _rank
+            from parsed
+        )
+        select usage_date, api_key_id, model, tokens, cost_usd, _load_id
+        from ranked
+        where _rank = 1
     """)
     for table, file in [
         ("raw.api_keys", "api_keys.csv"),
