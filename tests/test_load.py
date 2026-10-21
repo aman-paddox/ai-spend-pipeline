@@ -42,6 +42,16 @@ def test_through_stops_at_the_given_day(dirs):
     assert load(db, landing, reference, through="2026-07-01") == 1
 
 
+def test_a_retry_file_for_the_same_day_replaces_the_original_instead_of_adding_to_it(dirs):
+    landing, reference, db = dirs
+    write(landing / "2026-07-01.csv", HEADER, [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]])
+    write(landing / "2026-07-01-retry.csv", HEADER, [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]])
+    write(landing / "2026-07-02.csv", HEADER, [["2026-07-02", "key-a", "gpt-4o", 2000, "1.00"]])
+    assert load(db, landing, reference) == 2
+    ids = duckdb.connect(db).execute("select _load_id from raw.azure_openai_usage order by 1").fetchall()
+    assert ids == [("2026-07-01-retry",), ("2026-07-02",)]
+
+
 def test_a_file_missing_a_column_stops_the_load_and_says_which(dirs):
     landing, reference, db = dirs
     renamed = ["usage_date", "api_key_id", "model", "tokens", "cost"]

@@ -24,12 +24,33 @@ def check_columns(files: list[Path]) -> None:
             raise SystemExit(f"{path.name}: missing column(s) {', '.join(missing)}; found {', '.join(header)}")
 
 
+def dedupe_by_day(files: list[Path]) -> list[Path]:
+    """Keep one file per usage day. Several files can land for the same day (e.g. a
+    retry after a failed feed), named "YYYY-MM-DD.csv" (the plain, original feed) or
+    "YYYY-MM-DD-<suffix>.csv" (a corrected or retried landing for that day). A
+    suffixed file always supersedes the plain one for its day, since it represents a
+    later correction; otherwise both would be loaded and the day's cost
+    double-counted. If more than one suffixed file lands for the same day, the one
+    that sorts last by filename wins, since filenames are the only ordering signal
+    available (e.g. "-retry2" after "-retry").
+    """
+    by_day: dict[str, Path] = {}
+    for f in sorted(files):
+        day = f.name[:10]
+        is_plain = f.name == f"{day}.csv"
+        current = by_day.get(day)
+        if current is None or not (is_plain and current.name != f"{day}.csv"):
+            by_day[day] = f
+    return [by_day[day] for day in sorted(by_day)]
+
+
 def load(db: str, landing: Path, reference: Path, through: str | None = None) -> int:
     files = sorted(landing.glob("*.csv"))
     if through:
         files = [f for f in files if f.name[:10] <= through]
     if not files:
         raise SystemExit("no landing files to load")
+    files = dedupe_by_day(files)
     check_columns(files)
 
     con = duckdb.connect(db)
