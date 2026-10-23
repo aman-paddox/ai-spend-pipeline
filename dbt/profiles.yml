@@ -5,4 +5,5 @@ ai_spend:
       type: duckdb
       # Relative to where dbt runs: the repo root.
       path: "{{ env_var('WAREHOUSE', 'warehouse.duckdb') }}"
-      threads: 4
+      # DuckDB aborts (core dumped) on several dbt threads, in CI and sandboxes alike.
+      threads: 1
