@@ -2,10 +2,14 @@
 
 The warehouse is rebuilt from the landing files on every run, so a reload is just a
 run "through" a given day. A file that is missing a required column stops the load.
+A day that lands more than once (e.g. a retried upload) is deduped if every copy for
+that day has identical content; if the copies differ, the load stops so a person
+decides which one is correct instead of silently picking one or double-counting.
 """
 
 import argparse
 import csv
+import hashlib
 import sys
 from pathlib import Path
 
@@ -24,12 +28,40 @@ def check_columns(files: list[Path]) -> None:
             raise SystemExit(f"{path.name}: missing column(s) {', '.join(missing)}; found {', '.join(header)}")
 
 
+def dedupe_by_date(files: list[Path]) -> list[Path]:
+    """Collapse multiple landing files for the same day into one.
+
+    Landing files are named with the day as the first 10 characters (e.g.
+    "2026-08-17.csv" or "2026-08-17-retry.csv"), so a retry lands alongside the
+    original instead of replacing it. If every file for a day is byte-identical,
+    keep a single copy so the day isn't counted twice. If they differ, stop the
+    load rather than guess which one is right.
+    """
+    by_date: dict[str, list[Path]] = {}
+    for f in files:
+        by_date.setdefault(f.name[:10], []).append(f)
+
+    deduped = []
+    for date, group in sorted(by_date.items()):
+        if len(group) == 1:
+            deduped.append(group[0])
+            continue
+        hashes = {hashlib.sha256(f.read_bytes()).hexdigest() for f in group}
+        if len(hashes) > 1:
+            names = ", ".join(f.name for f in sorted(group))
+            raise SystemExit(f"{date}: {len(group)} landing files with different content ({names}); resolve by hand")
+        plain = [f for f in group if f.name == f"{date}.csv"]
+        deduped.append(plain[0] if plain else sorted(group)[0])
+    return deduped
+
+
 def load(db: str, landing: Path, reference: Path, through: str | None = None) -> int:
     files = sorted(landing.glob("*.csv"))
     if through:
         files = [f for f in files if f.name[:10] <= through]
     if not files:
         raise SystemExit("no landing files to load")
+    files = dedupe_by_date(files)
     check_columns(files)
 
     con = duckdb.connect(db)
