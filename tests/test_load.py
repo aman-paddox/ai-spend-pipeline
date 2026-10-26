@@ -48,3 +48,21 @@ def test_a_file_missing_a_column_stops_the_load_and_says_which(dirs):
     write(landing / "2026-07-01.csv", renamed, [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]])
     with pytest.raises(SystemExit, match="missing column.*cost_usd"):
         load(db, landing, reference)
+
+
+def test_identical_retry_file_for_a_day_is_deduped_not_double_counted(dirs):
+    landing, reference, db = dirs
+    rows = [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]]
+    write(landing / "2026-07-01.csv", HEADER, rows)
+    write(landing / "2026-07-01-retry.csv", HEADER, rows)
+    assert load(db, landing, reference) == 1
+    ids = duckdb.connect(db).execute("select _load_id from raw.azure_openai_usage").fetchall()
+    assert ids == [("2026-07-01",)]
+
+
+def test_conflicting_retry_file_for_a_day_stops_the_load(dirs):
+    landing, reference, db = dirs
+    write(landing / "2026-07-01.csv", HEADER, [["2026-07-01", "key-a", "gpt-4o", 1000, "0.50"]])
+    write(landing / "2026-07-01-retry.csv", HEADER, [["2026-07-01", "key-a", "gpt-4o", 1500, "0.75"]])
+    with pytest.raises(SystemExit, match="2026-07-01.*different content"):
+        load(db, landing, reference)
